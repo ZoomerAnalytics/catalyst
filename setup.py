@@ -15,7 +15,8 @@ setup(
     url='https://github.com/ZoomerAnalytics/catalyst',
     keywords=['sql', 'database', 'migration', 'sqlalchemy'],
     install_requires=[
-        'six'
+        'six',
+        'iso8601'
     ],
     entry_points={
         'console_scripts': [

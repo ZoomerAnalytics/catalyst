@@ -51,6 +51,36 @@ def save(args):
     print(info_hash(info))
 
 
+def dump(args):
+    from sqlalchemy import create_engine, MetaData, select
+    from collections import OrderedDict
+    from . import xjson
+
+    assert args.data != args.target
+    assert "://" not in args.target
+
+    src_engine = create_engine(args.data)
+
+    # dump data
+    with open(args.target, "w") as f:
+        tables = OrderedDict()
+        src_metadata = MetaData(bind=src_engine)
+        src_metadata.reflect()
+        for src_table in src_metadata.sorted_tables:
+            with utils.status("Dumping table '%s'" % src_table.name):
+                columns = [column.name for column in src_table.columns]
+                select_query = select([src_table.columns[name] for name in columns])
+                rows = [
+                    list(row)
+                    for row in select_query.execute()
+                ]
+                table = OrderedDict()
+                table['columns'] = columns
+                table['rows'] = rows
+                tables[src_table.name] = table
+        xjson.dump(tables, f)
+
+
 def migrate(args):
     with utils.status("Reading config file 'catalyst.json'"):
         with open("catalyst.json", "r") as f:
@@ -68,7 +98,6 @@ def migrate(args):
 
     assert args.data != args.target
 
-    src_engine = create_engine(args.data)
     dst_engine = create_engine(args.target)
 
     # clear out any existing tables
@@ -80,23 +109,29 @@ def migrate(args):
     dst_metadata = metadata
     dst_metadata.create_all(dst_engine)
 
+    # load source
+    from .data import JSONDataSource, SQLADataSource
+    if "://" in args.data:
+        src = SQLADataSource(args.data)
+    else:
+        src = JSONDataSource(args.data)
+
     # import data
     with dst_engine.connect() as dst_conn:
-        src_metadata = MetaData(bind=src_engine)
-        src_metadata.reflect()
         for dst_table in dst_metadata.sorted_tables:
-            if dst_table.name in src_metadata.tables:
+            if src.has_table(dst_table.name):
                 with utils.status("Migrating table '%s'" % dst_table.name):
-                    src_table = src_metadata.tables[dst_table.name]
-                    common_cols = list(set(
-                        column.name for column in dst_table.columns
-                    ).intersection(set(
-                        column.name for column in src_table.columns
-                    )))
-                    select_query = select([src_table.columns[name] for name in common_cols])
-                    insert_query = dst_table.insert().compile(bind=dst_engine, column_keys=common_cols)
-                    data = list(select_query.execute())
-                    dst_conn.execute(insert_query, data)
+                    src_cols = src.get_column_names(dst_table.name)
+                    common_cols = [
+                        column.name
+                        for column in dst_table.columns
+                        if column.name in src_cols
+                    ]
+                    data = src.get_data(dst_table.name, common_cols)
+                    if data:  # sql complains otherwise
+                        insert_query = dst_table.insert().compile(bind=dst_engine, column_keys=common_cols)
+                        dst_conn.execute(insert_query, data)
+
 
 def dbinit(args):
     from sqlalchemy import create_engine
@@ -137,6 +172,12 @@ def main():
     # Revision
     cmd = commands.add_parser('save', help="Save current metadata")
     cmd.set_defaults(func=save)
+
+    # Dump
+    cmd = commands.add_parser('dump', help="Dump data from DB to JSON file")
+    cmd.add_argument('data', type=str)
+    cmd.add_argument('target', type=str)
+    cmd.set_defaults(func=dump)
 
     # Migrate
     cmd = commands.add_parser('migrate', help="Migrate a DB")
