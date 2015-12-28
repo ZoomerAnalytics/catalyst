@@ -22,6 +22,9 @@ setup(
         'console_scripts': [
             'catalyst=catalyst.cli:main'
         ],
+        'sqlalchemy.dialects': [
+            'json = catalyst.dialect:JsonDialect',
+        ],
     },
     classifiers=[
         'Programming Language :: Python :: 2',
