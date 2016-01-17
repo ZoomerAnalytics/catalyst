@@ -5,9 +5,9 @@ import json
 import importlib
 import sys
 
-from . import utils
+from catalyst import utils
 
-from .schema import dump_metadata, load_metadata
+from catalyst.schema import dump_metadata, load_metadata
 
 
 def init(args):
@@ -134,9 +134,6 @@ def migrate(args):
 
 
 def dbinit(args):
-    from sqlalchemy import create_engine
-    engine = create_engine(args.uri)
-
     with utils.status("Reading config file 'catalyst.json'"):
         with open("catalyst.json", "r") as f:
             config = json.load(f)
@@ -149,9 +146,18 @@ def dbinit(args):
     for variable_name in variable_name.split("."):
         metadata = getattr(metadata, variable_name)
 
-    info = dump_metadata(metadata)
+    from sqlalchemy import create_engine, MetaData
 
-    metadata = load_metadata(info)
+    dst_engine = create_engine(args.target)
+
+    # clear out any existing tables
+    dst_metadata = MetaData(bind=dst_engine)
+    dst_metadata.reflect()
+    dst_metadata.drop_all()
+
+    # create new tables
+    dst_metadata = metadata
+    dst_metadata.create_all(dst_engine)
 
 
 def main():
@@ -167,7 +173,7 @@ def main():
     # Create
     cmd = commands.add_parser('dbinit', help="Initialize a new DB")
     cmd.set_defaults(func=dbinit)
-    cmd.add_argument('uri', type=str)
+    cmd.add_argument('target', type=str)
 
     # Revision
     cmd = commands.add_parser('save', help="Save current metadata")
