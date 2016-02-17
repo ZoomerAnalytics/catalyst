@@ -14,15 +14,17 @@ def init(args):
     if os.path.isfile("catalyst.json"):
         raise Exception("Config file 'catalyst.json' already exists")
 
-    if os.path.isdir(args.folder):
-        raise Exception("Migrations folder '%s' already exists" % args.folder)
-
-    with utils.status("Creating migrations folder '%s'" % args.folder):
-        os.mkdir(args.folder)
+    # if os.path.isdir(args.folder):
+    #     raise Exception("Migrations folder '%s' already exists" % args.folder)
+    #
+    # with utils.status("Creating migrations folder '%s'" % args.folder):
+    #     os.mkdir(args.folder)
 
     config = {
-        'folder': args.folder,
-        'metadata': 'module:metadata'
+        #'folder': args.folder,
+        'metadata': 'database_package.models_module:Model.metadata',
+        'dburi': 'sqlite:///app.db',
+        'dumpfile': 'data.json',
     }
 
     with utils.status("Creating config file 'catalyst.json'"):
@@ -56,13 +58,31 @@ def dump(args):
     from collections import OrderedDict
     from . import xjson
 
-    assert args.data != args.target
-    assert "://" not in args.target
+    with utils.status("Reading config file 'catalyst.json'"):
+        with open("catalyst.json", "r") as f:
+            config = json.load(f)
 
-    src_engine = create_engine(args.data)
+    target = args.target or config.get('dumpfile', None)
+    if target is None:
+        raise Exception("No 'target' argument specified and no 'dumpfile' setting in config file.")
+
+    data = args.data or config.get('dburi', None)
+    if data is None:
+        raise Exception("No 'data' argument specified and no 'dburi' setting in config file.")
+
+    if target == data:
+        raise Exception("Data source and target are the same")
+
+    if not args.yes and 'y' != input("Warning: any existing data at '%s' will be erased. Proceed? [y/n]" % target):
+        return
+
+    #assert data != target
+    #assert "://" not in target
+
+    src_engine = create_engine(data)
 
     # dump data
-    with open(args.target, "w") as f:
+    with open(target, "w") as f:
         tables = OrderedDict()
         src_metadata = MetaData(bind=src_engine)
         src_metadata.reflect()
@@ -96,9 +116,21 @@ def migrate(args):
 
     from sqlalchemy import create_engine, MetaData, select
 
-    assert args.data != args.target
+    target = args.target or config.get('dburi', None)
+    if target is None:
+        raise Exception("No 'target' argument specified and no 'dburi' setting in config file.")
 
-    dst_engine = create_engine(args.target)
+    data = args.data or config.get('dumpfile', None)
+    if data is None:
+        raise Exception("No 'data' argument specified and no 'dumpfile' setting in config file.")
+
+    if target == data:
+        raise Exception("Data source and target are the same")
+
+    if not args.yes and 'y' != input("Warning: any existing data at '%s' will be erased. Proceed? [y/n]" % target):
+        return
+
+    dst_engine = create_engine(target)
 
     # clear out any existing tables
     dst_metadata = MetaData(bind=dst_engine)
@@ -111,10 +143,10 @@ def migrate(args):
 
     # load source
     from .data import JSONDataSource, SQLADataSource
-    if "://" in args.data:
-        src = SQLADataSource(args.data)
+    if "://" in data:
+        src = SQLADataSource(data)
     else:
-        src = JSONDataSource(args.data)
+        src = JSONDataSource(data)
 
     # import data
     with dst_engine.connect() as dst_conn:
@@ -148,7 +180,14 @@ def dbinit(args):
 
     from sqlalchemy import create_engine, MetaData
 
-    dst_engine = create_engine(args.target)
+    target = args.target or config.get('dburi', None)
+    if target is None:
+        raise Exception("No 'target' argument specified and no 'dburi' setting in config file.")
+
+    if not args.yes and 'y' != input("Warning: any existing data at '%s' will be erased. Proceed? [y/n]" % target):
+        return
+
+    dst_engine = create_engine(target)
 
     # clear out any existing tables
     dst_metadata = MetaData(bind=dst_engine)
@@ -162,18 +201,19 @@ def dbinit(args):
 
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--yes', '-y', action='store_true', default=False)
     commands = parser.add_subparsers(dest='command')
     commands.required = True
 
     # Init
     cmd = commands.add_parser('init', help="Initialize the catalyst environment")
     cmd.set_defaults(func=init)
-    cmd.add_argument('folder', type=str)
+    #cmd.add_argument('folder', type=str)
 
     # Create
     cmd = commands.add_parser('dbinit', help="Initialize a new DB")
     cmd.set_defaults(func=dbinit)
-    cmd.add_argument('target', type=str)
+    cmd.add_argument('--target', '-t', type=str, default=None)
 
     # Revision
     cmd = commands.add_parser('save', help="Save current metadata")
@@ -181,14 +221,14 @@ def main():
 
     # Dump
     cmd = commands.add_parser('dump', help="Dump data from DB to JSON file")
-    cmd.add_argument('data', type=str)
-    cmd.add_argument('target', type=str)
+    cmd.add_argument('--data', '-d', type=str, default=None)
+    cmd.add_argument('--target', '-t', type=str, default=None)
     cmd.set_defaults(func=dump)
 
     # Migrate
     cmd = commands.add_parser('migrate', help="Migrate a DB")
-    cmd.add_argument('data', type=str)
-    cmd.add_argument('target', type=str)
+    cmd.add_argument('--data', '-d', type=str, default=None)
+    cmd.add_argument('--target', '-t', type=str, default=None)
     cmd.set_defaults(func=migrate)
 
     args = parser.parse_args()
