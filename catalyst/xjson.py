@@ -4,6 +4,8 @@ import io
 
 from datetime import datetime, date
 
+from decimal import Decimal
+
 
 class JsonWriter(object):
     def __init__(self, stream=None, indent="  ", max_indent_depth=3):
@@ -66,6 +68,8 @@ def _default(obj):
         return {'$datetime': obj.isoformat()}
     elif isinstance(obj, date):
         return {'$date': obj.isoformat()}
+    elif isinstance(obj, Decimal):
+        return float(obj)
     else:
         return obj
 
