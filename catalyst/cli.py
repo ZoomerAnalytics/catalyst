@@ -21,10 +21,11 @@ def init(args):
     #     os.mkdir(args.folder)
 
     config = {
-        #'folder': args.folder,
-        'metadata': 'database_package.models_module:Model.metadata',
-        'dburi': 'sqlite:///app.db',
-        'dumpfile': 'data.json',
+        'default': {
+            'metadata': 'database_package.models_module:Model.metadata',
+            'dburi': 'sqlite:///app.db',
+            'dumpfile': 'data.json',
+        }
     }
 
     with utils.status("Creating config file 'catalyst.json'"):
@@ -32,10 +33,23 @@ def init(args):
             json.dump(config, f, indent=2)
 
 
-def save(args):
+def load_config(label):
     with utils.status("Reading config file 'catalyst.json'"):
         with open("catalyst.json", "r") as f:
-            config = json.load(f)
+            j = json.load(f)
+            config = {}
+            while label:
+                base_config = j.get(label, None)
+                if base_config is None:
+                    raise Exception("No such config '%s'" % label)
+                label = base_config.get('extends', None)
+                base_config.update(config)
+                config = base_config
+            return config
+
+
+def save(args):
+    config = load_config(args.config)
 
     metadata = config['metadata']
     module_name, variable_name = metadata.split(":")
@@ -58,15 +72,13 @@ def dump(args):
     from collections import OrderedDict
     from . import xjson
 
-    with utils.status("Reading config file 'catalyst.json'"):
-        with open("catalyst.json", "r") as f:
-            config = json.load(f)
+    config = load_config(args.config)
 
-    target = args.target or config.get('dumpfile', None)
+    target = config.get('dumpfile', None)
     if target is None:
         raise Exception("No 'target' argument specified and no 'dumpfile' setting in config file.")
 
-    data = args.data or config.get('dburi', None)
+    data = config.get('dburi', None)
     if data is None:
         raise Exception("No 'data' argument specified and no 'dburi' setting in config file.")
 
@@ -102,9 +114,7 @@ def dump(args):
 
 
 def migrate(args):
-    with utils.status("Reading config file 'catalyst.json'"):
-        with open("catalyst.json", "r") as f:
-            config = json.load(f)
+    config = load_config(args.config)
 
     metadata = config['metadata']
     module_name, variable_name = metadata.split(":")
@@ -116,11 +126,11 @@ def migrate(args):
 
     from sqlalchemy import create_engine, MetaData, select
 
-    target = args.target or config.get('dburi', None)
+    target = config.get('dburi', None)
     if target is None:
         raise Exception("No 'target' argument specified and no 'dburi' setting in config file.")
 
-    data = args.data or config.get('dumpfile', None)
+    data = config.get('dumpfile', None)
     if data is None:
         raise Exception("No 'data' argument specified and no 'dumpfile' setting in config file.")
 
@@ -166,9 +176,7 @@ def migrate(args):
 
 
 def dbinit(args):
-    with utils.status("Reading config file 'catalyst.json'"):
-        with open("catalyst.json", "r") as f:
-            config = json.load(f)
+    config = load_config(args.config)
 
     metadata = config['metadata']
     module_name, variable_name = metadata.split(":")
@@ -180,7 +188,7 @@ def dbinit(args):
 
     from sqlalchemy import create_engine, MetaData
 
-    target = args.target or config.get('dburi', None)
+    target = config.get('dburi', None)
     if target is None:
         raise Exception("No 'target' argument specified and no 'dburi' setting in config file.")
 
@@ -208,28 +216,26 @@ def main():
     # Init
     cmd = commands.add_parser('init', help="Initialize the catalyst environment")
     cmd.set_defaults(func=init)
-    #cmd.add_argument('folder', type=str)
 
     # Create
     cmd = commands.add_parser('dbinit', help="Initialize a new DB")
     cmd.set_defaults(func=dbinit)
-    cmd.add_argument('--target', '-t', type=str, default=None)
+    cmd.add_argument('config', type=str)
 
     # Revision
     cmd = commands.add_parser('save', help="Save current metadata")
     cmd.set_defaults(func=save)
+    cmd.add_argument('config', type=str)
 
     # Dump
     cmd = commands.add_parser('dump', help="Dump data from DB to JSON file")
-    cmd.add_argument('--data', '-d', type=str, default=None)
-    cmd.add_argument('--target', '-t', type=str, default=None)
     cmd.set_defaults(func=dump)
+    cmd.add_argument('config', type=str)
 
     # Migrate
     cmd = commands.add_parser('migrate', help="Migrate a DB")
-    cmd.add_argument('--data', '-d', type=str, default=None)
-    cmd.add_argument('--target', '-t', type=str, default=None)
     cmd.set_defaults(func=migrate)
+    cmd.add_argument('config', type=str)
 
     args = parser.parse_args()
     args.func(args)
