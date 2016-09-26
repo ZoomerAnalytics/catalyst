@@ -1,6 +1,7 @@
 import json
 import iso8601
 import io
+import pytz
 
 from datetime import datetime, date
 
@@ -22,11 +23,13 @@ class JsonWriter(object):
         else:
             json.dump(obj, self.stream, default=_default)
 
-    def _newline(self, inc=0):
+    def _newline(self, inc=0, alt=''):
         self._depth += inc
         if (self._depth + max(0, -inc)) <= self.max_indent_depth:
             self.stream.write("\n")
             self.stream.write(self.indent * min(self.max_indent_depth, self._depth))
+        else:
+            self.stream.write(alt)
 
     def write_object(self, obj):
         self.stream.write("{")
@@ -78,7 +81,7 @@ def _object_hook(obj):
     if len(obj) == 1:
         key, = obj.keys()
         if key == '$datetime':
-            return iso8601.parse_date(obj[key])
+            return iso8601.parse_date(obj[key]).replace(tzinfo=None)
         elif key == '$date':
             return iso8601.parse_date(obj[key]).date()
     return obj
