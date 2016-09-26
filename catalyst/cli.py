@@ -4,6 +4,7 @@ import argparse
 import json
 import importlib
 import sys
+from catalyst import cml
 
 from catalyst import utils
 
@@ -70,7 +71,7 @@ def save(args):
 def dump(args):
     from sqlalchemy import create_engine, MetaData, select
     from collections import OrderedDict
-    from . import xjson
+    #from . import xjson
 
     config = load_config(args.config)
 
@@ -95,7 +96,7 @@ def dump(args):
 
     # dump data
     with open(target, "w") as f:
-        tables = OrderedDict()
+        tables = []
         src_metadata = MetaData(bind=src_engine)
         src_metadata.reflect()
         for src_table in src_metadata.sorted_tables:
@@ -106,11 +107,18 @@ def dump(args):
                     list(row)
                     for row in select_query.execute()
                 ]
-                table = OrderedDict()
-                table['columns'] = columns
-                table['rows'] = rows
-                tables[src_table.name] = table
-        xjson.dump(tables, f)
+                tables.append(cml.Item(
+                    [src_table.name],
+                    cml.Item(["columns"], *(
+                        cml.Item([column])
+                        for column in columns
+                    )),
+                    cml.Item(["rows"], *(
+                        cml.Item(row)
+                        for row in rows
+                    ))
+                ))
+        cml.dump(tables, f)
 
 
 def migrate(args):
